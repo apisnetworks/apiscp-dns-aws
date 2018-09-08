@@ -408,7 +408,7 @@
 		 *
 		 * @return Route53Client
 		 */
-		private function makeApi(): Route53Client
+		private function makeApi()
 		{
 			return Api::api(
 				$this->key['key'],

@@ -14,14 +14,40 @@
 
 namespace Opcenter\Dns\Providers\Aws;
 
-use Aws\AwsClient;
 use Aws\Credentials\Credentials;
-use Aws\Route53\Route53Client;
-use GuzzleHttp\Exception\ServerException;
-use GuzzleHttp\Psr7\Response;
+use Aws\Exception\AwsException;
 
 class Api {
 	const API_VERISON = '2013-04-01';
+	protected $proxy;
+
+	private function __construct(string $key, string $secret, string $abstract, array $options = [])
+	{
+		$credentials = new Credentials($key, $secret, $options['token'] ?? null, $options['expires'] ?? null);
+		$this->proxy = new $abstract($options + [
+				'credentials'  => $credentials,
+				'version'      => static::API_VERISON,
+				'auth_headers' => [
+					'User-Agent' => PANEL_BRAND . ' ' . APNSCP_VERSION,
+				],
+			]);
+	}
+
+
+	public function __call($name, $arguments)
+	{
+		try {
+			return $this->proxy->$name(...$arguments);
+		} catch (AwsException $e) {
+			if ($e->getStatusCode() === 429) {
+				usleep(250000);
+				return $this->__call($name, $arguments);
+			}
+			throw $e;
+		}
+
+	}
+
 	/**
 	 * Create an Aws API instance
 	 *
@@ -29,17 +55,10 @@ class Api {
 	 * @param string $secret
 	 * @param string $abstract
 	 * @param array  $options
-	 * @return AwsClient
+	 * @return Api
 	 */
-	public static function api(string $key, string $secret, string $abstract, array $options = []): AwsClient
+	public static function api(string $key, string $secret, string $abstract, array $options = []): Api
 	{
-		$credentials = new Credentials($key, $secret, $options['token'] ?? null, $options['expires'] ?? null);
-		return new $abstract($options + [
-			'credentials'  => $credentials,
-			'version' => static::API_VERISON,
-			'auth_headers' => [
-				'User-Agent' => PANEL_BRAND . ' ' . APNSCP_VERSION,
-			],
-		]);
+		return new static($key, $secret, $abstract, $options);
 	}
 }
