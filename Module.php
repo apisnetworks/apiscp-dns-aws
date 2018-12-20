@@ -1,16 +1,16 @@
 <?php declare(strict_types=1);
 
-/**
- * Copyright (C) Apis Networks, Inc - All Rights Reserved.
- *
- * Unauthorized copying of this file, via any medium, is
- * strictly prohibited without consent. Any dissemination of
- * material herein is prohibited.
- *
- * For licensing inquiries email <licensing@apisnetworks.com>
- *
- * Written by Matt Saladna <matt@apisnetworks.com>, August 2018
- */
+	/**
+	 * Copyright (C) Apis Networks, Inc - All Rights Reserved.
+	 *
+	 * Unauthorized copying of this file, via any medium, is
+	 * strictly prohibited without consent. Any dissemination of
+	 * material herein is prohibited.
+	 *
+	 * For licensing inquiries email <licensing@apisnetworks.com>
+	 *
+	 * Written by Matt Saladna <matt@apisnetworks.com>, August 2018
+	 */
 
 	namespace Opcenter\Dns\Providers\Aws;
 
@@ -46,13 +46,201 @@
 		];
 
 		// @var array API credentials
-		private $key;
 		protected $metaCache = [];
+		private $key;
 
 		public function __construct()
 		{
 			parent::__construct();
 			$this->key = $this->getServiceValue('dns', 'key', DNS_PROVIDER_KEY);
+		}
+
+		/**
+		 * Add a DNS record
+		 *
+		 * @param string $zone
+		 * @param string $subdomain
+		 * @param string $rr
+		 * @param string $param
+		 * @param int    $ttl
+		 * @return bool
+		 */
+		public function add_record(
+			string $zone,
+			string $subdomain,
+			string $rr,
+			string $param,
+			int $ttl = self::DNS_TTL
+		): bool {
+			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
+				return false;
+			}
+			$api = $this->makeApi();
+			$record = self::createRecord($zone, [
+				'name'      => $subdomain,
+				'rr'        => $rr,
+				'parameter' => $param,
+				'ttl'       => $ttl,
+			]);
+			if ($record['name'] === '@') {
+				$record['name'] = '';
+			}
+			try {
+				$api->changeResourceRecordSets([
+					'ChangeBatch'  => [
+						'Changes' => [
+							[
+								'Action'            => 'CREATE',
+								'ResourceRecordSet' => $this->formatRecord($record)
+							]
+						]
+					],
+					'HostedZoneId' => $this->getZoneId($zone)
+				]);
+				$this->addCache($record);
+			} catch (Route53Exception $e) {
+				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
+
+				return error("Failed to create record `%s' type %s: %s", $fqdn, $rr, $e->getAwsErrorMessage());
+			}
+			$record->setMeta('id', $record->hash());
+			$this->addCache($record);
+
+			return true;
+		}
+
+		/**
+		 * Get hosting nameservers
+		 *
+		 * @param string|null $domain
+		 * @return array
+		 */
+		public function get_hosting_nameservers(string $domain = null): array
+		{
+			$api = $this->makeApi();
+			try {
+				$set = $api->getHostedZone(['Id' => $this->getZoneId($domain)]);
+			} catch (Route53Exception $e) {
+				return [];
+			}
+
+			return $set['DelegationSet']['NameServers'] ?? [];
+		}
+
+		/**
+		 * Add DNS zone to service
+		 *
+		 * @param string $domain
+		 * @param string $ip
+		 * @return bool
+		 */
+		public function add_zone_backend(string $domain, string $ip): bool
+		{
+			/**
+			 * @var Zones $api
+			 */
+			$api = $this->makeApi();
+			try {
+				$api->createHostedZone([
+					'Name'            => $domain,
+					'CallerReference' => $domain . '-' . microtime(true)
+				]);
+			} catch (Route53Exception $e) {
+				if ($e->getAwsErrorCode() === 'HostedZoneAlreadyExists') {
+					return warn("Zone `%s' already exists", $domain);
+				}
+
+				return error("Failed to add zone `%s', error: %s", $domain, $e->getAwsErrorMessage());
+			}
+
+			return true;
+		}
+
+		/**
+		 * Remove DNS zone from nameserver
+		 *
+		 * @param string $domain
+		 * @return bool
+		 */
+		public function remove_zone_backend(string $domain): bool
+		{
+			$api = $this->makeApi();
+			try {
+				$data = (array)$this->get_zone_data($domain);
+				// @todo batch to reduce API overhead
+				foreach ($data as $rr => $records) {
+					if ($rr === 'SOA' || $rr === 'NS') {
+						continue;
+					}
+					foreach ($records as $record) {
+						$this->remove_record($domain, $record['subdomain'], $rr, $record['parameter']);
+					}
+				}
+				$api->deleteHostedZone([
+					'Id' => $this->getZoneId($domain),
+				]);
+			} catch (Route53Exception $e) {
+				return error("Failed to remove zone `%s', error: %s", $domain, $e->getAwsErrorMessage());
+			}
+			static::$zoneExistsCache[$domain] = null;
+
+			return true;
+		}
+
+		/**
+		 * Remove a DNS record
+		 *
+		 * @param string      $zone
+		 * @param string      $subdomain
+		 * @param string      $rr
+		 * @param string|null $param
+		 * @return bool
+		 */
+		public function remove_record(string $zone, string $subdomain, string $rr, string $param = null): bool
+		{
+			if (null === $param) {
+				$param = '';
+			}
+			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
+				return false;
+			}
+			$api = $this->makeApi();
+			$id = $this->getRecordId($r = new Record($zone,
+				['name' => $subdomain, 'rr' => $rr, 'parameter' => $param]));
+			if (!$id) {
+				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
+
+				return error("Record `%s' (rr: `%s', param: `%s')  does not exist", $fqdn, $rr, $param);
+			}
+			try {
+				$api->changeResourceRecordSets([
+					'ChangeBatch'  => [
+						'Changes' => [
+							[
+								'Action'            => 'DELETE',
+								'ResourceRecordSet' => $this->formatRecord($r),
+							]
+						]
+					],
+					'HostedZoneId' => $this->getZoneId($zone)
+				]);
+			} catch (Route53Exception $e) {
+				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
+
+				return error("Failed to delete record `%s' type %s: %s", $fqdn, $rr, $e->getAwsErrorMessage());
+			}
+
+			$items = array_pull($this->zoneCache[$r->getZone()], $this->getCacheKey($r), []);
+			if (\count($items) > 1) {
+				foreach ($items as $k => $i) {
+					if ($i->is($r)) {
+						unset($items[$k]);
+					}
+				}
+				array_set($this->zoneCache[$r->getZone()], $this->getCacheKey($r), $items);
+			}
+
+			return true;
 		}
 
 		/**
@@ -71,7 +259,7 @@
 				do {
 					$data = $client->listResourceRecordSets([
 						'HostedZoneId' => $zoneId,
-						'Marker' => $marker
+						'Marker'       => $marker
 					]);
 					$raw = array_map(function ($zone) {
 						return (array)$zone;
@@ -113,6 +301,77 @@
 		}
 
 		/**
+		 * Create AWS API
+		 *
+		 * @return Route53Client
+		 */
+		private function makeApi()
+		{
+			return Api::api(
+				$this->key['key'],
+				$this->key['secret'],
+				Route53Client::class,
+				[
+					'region' => array_get($this->key, 'region', Validator::AWS_DEFAULT)
+				]
+			);
+		}
+
+		/**
+		 * Get internal AWS zone ID
+		 *
+		 * @param string $domain
+		 * @return null|string
+		 */
+		protected function getZoneId(string $domain): ?string
+		{
+			return $this->getZoneMeta($domain, 'Id');
+		}
+
+		/**
+		 * Get zone meta information
+		 *
+		 * @param string $domain
+		 * @param string $key
+		 * @return mixed|null
+		 */
+		private function getZoneMeta(string $domain, string $key)
+		{
+			if (!isset($this->metaCache[$domain])) {
+				$this->populateZoneMetaCache();
+			}
+
+			return $this->metaCache[$domain][$key] ?? null;
+		}
+
+		/**
+		 * Populate all zone cache
+		 */
+		protected function populateZoneMetaCache()
+		{
+			$api = $this->makeApi();
+			$marker = null;
+			do {
+				$data = $api->listHostedZones([
+					'Marker' => $marker
+				]);
+				$raw = array_map(function ($zone) {
+					return (array)$zone;
+				}, $data->toArray()['HostedZones']);
+				$this->metaCache = array_merge(
+					$this->metaCache,
+					array_combine(
+						array_map(function ($domain) {
+							return rtrim($domain, '.');
+						},
+							array_column($raw, 'Name')), $raw
+					)
+				);
+				$marker = $data['Marker'] ?? null;
+			} while ($data['IsTruncated']);
+		}
+
+		/**
 		 * Modify a DNS record
 		 *
 		 * @param string $zone
@@ -144,7 +403,7 @@
 								'ResourceRecordSet' => $this->formatRecord($old)
 							],
 							[
-								'Action'			=> 'CREATE',
+								'Action'            => 'CREATE',
 								'ResourceRecordSet' => $this->formatRecord($new)
 							]
 						]
@@ -167,269 +426,16 @@
 		}
 
 		/**
-		 * Add a DNS record
-		 *
-		 * @param string $zone
-		 * @param string $subdomain
-		 * @param string $rr
-		 * @param string $param
-		 * @param int    $ttl
-		 * @return bool
-		 */
-		public function add_record(
-			string $zone,
-			string $subdomain,
-			string $rr,
-			string $param,
-			int $ttl = self::DNS_TTL
-		): bool {
-			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
-				return false;
-			}
-			$api = $this->makeApi();
-			$record = self::createRecord($zone, [
-				'name'      => $subdomain,
-				'rr'        => $rr,
-				'parameter' => $param,
-				'ttl'       => $ttl,
-			]);
-			if ($record['name'] === '@') {
-				$record['name'] = '';
-			}
-			try {
-				$api->changeResourceRecordSets([
-					'ChangeBatch' => [
-						'Changes' => [[
-							'Action'       => 'CREATE',
-							'ResourceRecordSet' => $this->formatRecord($record)
-						]]
-					],
-					'HostedZoneId' => $this->getZoneId($zone)
-				]);
-				$this->addCache($record);
-			} catch (Route53Exception $e) {
-				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
-				return error("Failed to create record `%s' type %s: %s", $fqdn, $rr, $e->getAwsErrorMessage());
-			}
-			$record->setMeta('id', $record->hash());
-			$this->addCache($record);
-			return true;
-		}
-
-		/**
-		 * Remove a DNS record
-		 *
-		 * @param string      $zone
-		 * @param string      $subdomain
-		 * @param string      $rr
-		 * @param string|null $param
-		 * @return bool
-		 */
-		public function remove_record(string $zone, string $subdomain, string $rr, string $param = null): bool
-		{
-			if (null === $param) {
-				$param = '';
-			}
-			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
-				return false;
-			}
-			$api = $this->makeApi();
-			$id = $this->getRecordId($r = new Record($zone, ['name' => $subdomain, 'rr' => $rr, 'parameter' => $param]));
-			if (!$id) {
-				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
-
-				return error("Record `%s' (rr: `%s', param: `%s')  does not exist", $fqdn, $rr, $param);
-			}
-			try {
-				$api->changeResourceRecordSets([
-					'ChangeBatch'  => [
-						'Changes' => [
-							[
-								'Action'            => 'DELETE',
-								'ResourceRecordSet' => $this->formatRecord($r),
-							]
-						]
-					],
-					'HostedZoneId' => $this->getZoneId($zone)
-				]);
-			} catch (Route53Exception $e) {
-				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
-				return error("Failed to delete record `%s' type %s: %s", $fqdn, $rr, $e->getAwsErrorMessage());
-			}
-
-			$items = array_pull($this->zoneCache[$r->getZone()], $this->getCacheKey($r), []);
-			if (\count($items) > 1) {
-				foreach($items as $k => $i) {
-					if ($i->is($r)) {
-						unset($items[$k]);
-					}
-				}
-				array_set($this->zoneCache[$r->getZone()], $this->getCacheKey($r), $items);
-			}
-			return true;
-		}
-
-		/**
-		 * Get hosting nameservers
-		 *
-		 * @param string|null $domain
-		 * @return array
-		 */
-		public function get_hosting_nameservers(string $domain = null): array
-		{
-			$api = $this->makeApi();
-			try {
-				$set = $api->getHostedZone(['Id' => $this->getZoneId($domain)]);
-			} catch (Route53Exception $e) {
-				return [];
-			}
-			return $set['DelegationSet']['NameServers'] ?? [];
-		}
-
-		/**
-		 * Add DNS zone to service
-		 *
-		 * @param string $domain
-		 * @param string $ip
-		 * @return bool
-		 */
-		public function add_zone_backend(string $domain, string $ip): bool
-		{
-			/**
-			 * @var Zones $api
-			 */
-			$api = $this->makeApi();
-			try {
-				$api->createHostedZone([
-					'Name' => $domain,
-					'CallerReference' => $domain . '-' . microtime(true)
-				]);
-			} catch (Route53Exception $e) {
-				if ($e->getAwsErrorCode() === 'HostedZoneAlreadyExists') {
-					return warn("Zone `%s' already exists", $domain);
-				}
-				return error("Failed to add zone `%s', error: %s", $domain, $e->getAwsErrorMessage());
-			}
-
-			return true;
-		}
-
-		/**
-		 * Remove DNS zone from nameserver
-		 *
-		 * @param string $domain
-		 * @return bool
-		 */
-		public function remove_zone_backend(string $domain): bool
-		{
-			$api = $this->makeApi();
-			try {
-				$data = (array)$this->get_zone_data($domain);
-				// @todo batch to reduce API overhead
-				foreach ($data as $rr => $records) {
-					if ($rr === 'SOA' || $rr === 'NS') {
-						continue;
-					}
-					foreach ($records as $record) {
-						$this->remove_record($domain, $record['subdomain'], $rr, $record['parameter']);
-					}
-				}
-				$api->deleteHostedZone([
-					'Id' => $this->getZoneId($domain),
-				]);
-			} catch (Route53Exception $e) {
-				return error("Failed to remove zone `%s', error: %s", $domain, $e->getAwsErrorMessage());
-			}
-			static::$zoneExistsCache[$domain] = null;
-			return true;
-		}
-
-		/**
-		 * Get zone meta information
-		 *
-		 * @param string $domain
-		 * @param string $key
-		 * @return mixed|null
-		 */
-		private function getZoneMeta(string $domain, string $key)
-		{
-			if (!isset($this->metaCache[$domain])) {
-				$this->populateZoneMetaCache();
-			}
-			return $this->metaCache[$domain][$key] ?? null;
-		}
-
-		/**
-		 * Populate all zone cache
-		 */
-		protected function populateZoneMetaCache()
-		{
-			$api = $this->makeApi();
-			$marker = null;
-			do {
-				$data = $api->listHostedZones([
-					'Marker' => $marker
-				]);
-				$raw = array_map(function ($zone) {
-					return (array)$zone;
-				}, $data->toArray()['HostedZones']);
-				$this->metaCache = array_merge(
-					$this->metaCache,
-					array_combine(
-						array_map(function ($domain) {
-							return rtrim($domain, '.');
-						},
-						array_column($raw, 'Name')), $raw
-					)
-				);
-				$marker = $data['Marker'] ?? null;
-			} while ($data['IsTruncated']);
-		}
-
-		/**
-		 * Get internal AWS zone ID
-		 *
-		 * @param string $domain
-		 * @return null|string
-		 */
-		protected function getZoneId(string $domain): ?string
-		{
-			return $this->getZoneMeta($domain, 'Id');
-		}
-
-		protected function hasCnameApexRestriction(): bool
-		{
-			return true;
-		}
-
-
-		/**
-		 * Create AWS API
-		 *
-		 * @return Route53Client
-		 */
-		private function makeApi()
-		{
-			return Api::api(
-				$this->key['key'],
-				$this->key['secret'],
-				Route53Client::class,
-				[
-					'region' => array_get($this->key, 'region', Validator::AWS_DEFAULT)
-				]
-			);
-		}
-
-		/**
 		 * Format AWS record
 		 *
 		 * @param Record $r
 		 * @return array
 		 */
-		protected function formatRecord(Record $r) {
+		protected function formatRecord(Record $r)
+		{
 			$args = [
-				'Type' => strtoupper($r['rr']),
-				'TTL' => $r['ttl'] ?? static::DNS_TTL,
+				'Type'   => strtoupper($r['rr']),
+				'TTL'    => $r['ttl'] ?? static::DNS_TTL,
 				'Weight' => $r['weight'] ?? Record::DEFAULT_WEIGHT
 			];
 			$fqdn = ltrim($r['name'] . '.' . $r['zone'], '.');
@@ -438,11 +444,17 @@
 				//debug("Missed record ID for %s", var_export($r, true));
 				$id = $r->hash();
 			}
+
 			return $args + [
-				'Name'            => $fqdn,
-				'SetIdentifier'   => $id,
-				'ResourceRecords' => [['Value' => $r['parameter']]]
-			];
+					'Name'            => $fqdn,
+					'SetIdentifier'   => $id,
+					'ResourceRecords' => [['Value' => $r['parameter']]]
+				];
+		}
+
+		protected function hasCnameApexRestriction(): bool
+		{
+			return true;
 		}
 
 

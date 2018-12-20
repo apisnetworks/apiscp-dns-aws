@@ -13,7 +13,6 @@
 
 	use Aws\Exception\AwsException;
 	use Aws\Route53\Route53Client;
-	use GuzzleHttp\Exception\ClientException;
 	use Opcenter\Dns\Contracts\ServiceProvider;
 	use Opcenter\Service\ConfigurationContext;
 
@@ -39,6 +38,7 @@
 			'us-gov-west-1'
 		];
 		const AWS_DEFAULT = 'us-west-2';
+
 		/**
 		 * Validate service value
 		 *
