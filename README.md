@@ -15,6 +15,17 @@ Where the key is created within AWS. Your API key is available within your [AWS 
 * secret: IAM secret
 * region: AWS region. Refer to [Regions and Availability Zones](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.RegionsAndAvailabilityZones.html)
 
+### Setting as default
+
+AWS may be configured as the default provider for all sites using the `dns.default-provider` [Scope](https://gitlab.com/apisnetworks/apnscp/blob/master/docs/admin/Scopes.md). When adding a site in Nexus or [AddDomain](https://hq.apnscp.com/working-with-cli-helpers/#adddomain) the key will be replaced with "DEFAULT". This is substituted automatically on account creation.
+
+```bash
+cpcmd config_set dns.default-provider aws
+cpcmd config_set dns.default-provider-key '[key:ABCDEF123,secret:abCdEf12345]'
+```
+
+> Note that it is not safe to set this value as a server-wide default in untrusted multiuser environments. A user with panel access can retrieve your key `common_get_service_value dns key` or even using Javascript in the panel, `apnscp.cmd('common_get_service_value',['dns','key'], {async: false})`.
+
 ## Components
 
 * Module- overrides [Dns_Module](https://github.com/apisnetworks/apnscp-modules/blob/master/modules/dns.php) behavior
