@@ -42,7 +42,7 @@
 			'PTR',
 			'SPF',
 			'SRV',
-			'TXT',
+			'TXT'
 		];
 
 		// @var array API credentials
@@ -100,7 +100,6 @@
 				$this->addCache($record);
 			} catch (Route53Exception $e) {
 				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
-
 				return error("Failed to create record `%s' type %s: %s", $fqdn, $rr, $e->getAwsErrorMessage());
 			}
 			$record->setMeta('id', $record->hash());

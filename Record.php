@@ -33,6 +33,24 @@
 			parent::__construct($zone, $args);
 		}
 
+		protected function formatCaa()
+		{
+			$data = $this->getMeta('data');
+			if ($data[-1] === '"') {
+				// prevent doubly-escaping
+				return;
+			}
+			$this->setMeta('data', '"' . rtrim($data, '.') . '"');
+			$this->parameter = $this->getMeta('flags') . ' ' .
+				$this->getMeta('tag') . ' ' . $this->getMeta('data');
+		}
+
+		protected function formatSpf() {
+			if ($this->parameter[-1] === '"') {
+				return;
+			}
+			$this->parameter = '"' . $this->parameter . '"';
+		}
 
 		/**
 		 * @return array
@@ -54,4 +72,6 @@
 			// sha256 gets truncated in API
 			return hash('md5', var_export($this, true));
 		}
+
+
 	}
