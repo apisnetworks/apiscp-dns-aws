@@ -116,6 +116,9 @@
 		 */
 		public function get_hosting_nameservers(string $domain = null): array
 		{
+			if (!$domain) {
+				return error("Domain is required with AWS module");
+			}
 			$api = $this->makeApi();
 			try {
 				$set = $api->getHostedZone(['Id' => $this->getZoneId($domain)]);
@@ -391,6 +394,7 @@
 				return false;
 			}
 			$api = $this->makeApi();
+
 			try {
 				$merged = clone $old;
 				$new = $merged->merge($new);
@@ -434,9 +438,14 @@
 		{
 			$args = [
 				'Type'   => strtoupper($r['rr']),
-				'TTL'    => $r['ttl'] ?? static::DNS_TTL,
 				'Weight' => $r['weight'] ?? Record::DEFAULT_WEIGHT
 			];
+			// AWS has a strict match on TTL with records.
+			// Retrieve what we can from cache if it's missing
+			if ($r['ttl'] === null) {
+				$r['ttl'] = array_get($this->getRecordFromCache($r), 'ttl', self::DNS_TTL);
+			}
+			$args['TTL'] = $r['ttl'];
 			$fqdn = ltrim($r['name'] . '.' . $r['zone'], '.');
 
 			if (!($id = $this->getRecordId($r))) {
