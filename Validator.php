@@ -46,7 +46,7 @@
 		 * @param                      $var service value
 		 * @return bool
 		 */
-		public function valid(ConfigurationContext $ctx, $var): bool
+		public function valid(ConfigurationContext $ctx, &$var): bool
 		{
 			if (!\is_array($var) || !isset($var['key'], $var['secret'])) {
 				return error("AWS key must provide both key and secret");
