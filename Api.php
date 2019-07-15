@@ -53,7 +53,8 @@
 			try {
 				return $this->proxy->$name(...$arguments);
 			} catch (AwsException $e) {
-				if ($e->getStatusCode() === 429) {
+				$code = $e->getStatusCode();
+				if ($code === 429 || ($code === 400 && false !== strpos($e->getAwsErrorMessage(), 'Rate exceeded')) ) {
 					usleep(250000);
 
 					return $this->__call($name, $arguments);
