@@ -214,6 +214,10 @@
 
 				return error("Record `%s' (rr: `%s', param: `%s')  does not exist", $fqdn, $rr, $param);
 			}
+			if (!$param) {
+				$r['parameter'] = array_get($this->getRecordFromCache($r), 'parameter');
+			}
+
 			try {
 				$api->changeResourceRecordSets([
 					'ChangeBatch'  => [
