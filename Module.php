@@ -117,7 +117,7 @@
 		public function get_hosting_nameservers(string $domain = null): array
 		{
 			if (!$domain) {
-				return error("Domain is required with AWS module");
+				return error('Domain is required with AWS module');
 			}
 			$api = $this->makeApi();
 			try {
@@ -249,7 +249,7 @@
 		 * @param string $domain
 		 * @return null|string
 		 */
-		protected function zoneAxfr($domain): ?string
+		protected function zoneAxfr(string $domain): ?string
 		{
 			$client = $this->makeApi();
 			try {
@@ -261,7 +261,7 @@
 						'HostedZoneId' => $zoneId,
 						'Marker'       => $marker
 					]);
-					$raw = array_map(function ($zone) {
+					$raw = array_map(static function ($zone) {
 						return (array)$zone;
 					}, $data->toArray()['ResourceRecordSets']);
 					$records = array_merge($records, $raw);
@@ -355,13 +355,13 @@
 				$data = $api->listHostedZones([
 					'Marker' => $marker
 				]);
-				$raw = array_map(function ($zone) {
+				$raw = array_map(static function ($zone) {
 					return (array)$zone;
 				}, $data->toArray()['HostedZones']);
 				$this->metaCache = array_merge(
 					$this->metaCache,
 					array_combine(
-						array_map(function ($domain) {
+						array_map(static function ($domain) {
 							return rtrim($domain, '.');
 						},
 							array_column($raw, 'Name')), $raw

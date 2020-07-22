@@ -49,7 +49,7 @@
 		public function valid(ConfigurationContext $ctx, &$var): bool
 		{
 			if (!\is_array($var) || !isset($var['key'], $var['secret'])) {
-				return error("AWS key must provide both key and secret");
+				return error('AWS key must provide both key and secret');
 			}
 
 			if (!isset($var['region'])) {
@@ -72,7 +72,7 @@
 			try {
 				Api::api($key, $secret, Route53Client::class, ['region' => $region])->getHostedZoneCount();
 			} catch (AwsException $e) {
-				return error("AWS key failed: %s", $e->getAwsErrorMessage());
+				return error('AWS key failed: %s', $e->getAwsErrorMessage());
 			}
 
 			return true;
