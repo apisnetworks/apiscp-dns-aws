@@ -43,6 +43,8 @@
 			'TXT'
 		];
 
+		public const SHOW_NS_APEX = false;
+
 		// @var array API credentials
 		protected $metaCache = [];
 		private $key;

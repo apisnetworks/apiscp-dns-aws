@@ -50,13 +50,18 @@
 
 		public function __call($name, $arguments)
 		{
+			static $count = 0;
 			try {
-				return $this->proxy->$name(...$arguments);
+				$ret = $this->proxy->$name(...$arguments);
+				$count = 0;
+				return $ret;
 			} catch (AwsException $e) {
 				$code = $e->getStatusCode();
-				if ($code === 429 || ($code === 400 && false !== strpos($e->getAwsErrorMessage(), 'Rate exceeded')) ) {
+				if ($code === 429 || ($code === 400 && false !== strpos((string)$e->getAwsErrorMessage(), 'Rate exceeded')) ) {
 					usleep(250000);
-
+					if (++$count > 20) {
+						throw $e;
+					}
 					return $this->__call($name, $arguments);
 				}
 				throw $e;
