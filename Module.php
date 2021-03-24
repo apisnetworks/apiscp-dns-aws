@@ -75,6 +75,9 @@
 			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
 				return false;
 			}
+			if (!$this->owned_zone($zone)) {
+				return error("Domain `%s' not owned by account", $zone);
+			}
 			$api = $this->makeApi();
 			$record = self::createRecord($zone, [
 				'name'      => $subdomain,
@@ -200,6 +203,10 @@
 			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
 				return false;
 			}
+			if (!$this->owned_zone($zone)) {
+				return error("Domain `%s' not owned by account", $zone);
+			}
+
 			$api = $this->makeApi();
 			$id = $this->getRecordId($r = new Record($zone,
 				['name' => $subdomain, 'rr' => $rr, 'parameter' => $param]));
