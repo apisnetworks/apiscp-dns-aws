@@ -44,6 +44,7 @@
 		];
 
 		public const SHOW_NS_APEX = false;
+		public const HAS_CONTIGUOUS_LIMIT = true;
 
 		// @var array API credentials
 		protected $metaCache = [];
@@ -88,6 +89,7 @@
 			if ($record['name'] === '@') {
 				$record['name'] = '';
 			}
+
 			try {
 				$api->changeResourceRecordSets([
 					'ChangeBatch'  => [
@@ -208,13 +210,15 @@
 			}
 
 			$api = $this->makeApi();
-			$id = $this->getRecordId($r = new Record($zone,
+			$r = $this->getRecordFromCache(new Record($zone,
 				['name' => $subdomain, 'rr' => $rr, 'parameter' => $param]));
-			if (!$id) {
+
+			if (!$r) {
 				$fqdn = ltrim(implode('.', [$subdomain, $zone]), '.');
 
 				return error("Record `%s' (rr: `%s', param: `%s')  does not exist", $fqdn, $rr, $param);
 			}
+
 			if (!$param) {
 				$r['parameter'] = array_get($this->getRecordFromCache($r), 'parameter');
 			}
@@ -290,7 +294,8 @@
 							'ttl'       => $r['TTL'] ?? static::DNS_TTL,
 							'parameter' => $parameter,
 							'meta'      => [
-								'id' => $r['SetIdentifier'] ?? null
+								'id'     => $r['SetIdentifier'] ?? null,
+								'rweight' => $r['Weight'] ?? null
 							]
 						]
 					);
@@ -391,7 +396,7 @@
 			if (!$this->canonicalizeRecord($zone, $old['name'], $old['rr'], $old['parameter'], $old['ttl'])) {
 				return false;
 			}
-			if (!$this->getRecordId($old)) {
+			if (!($old = $this->getRecordFromCache($old))) {
 				return error("failed to find record ID in AWS zone `%s' - does `%s' (rr: `%s', parameter: `%s') exist?",
 					$zone, $old['name'], $old['rr'], $old['parameter']);
 			}
@@ -443,8 +448,16 @@
 		{
 			$args = [
 				'Type'   => strtoupper($r['rr']),
-				'Weight' => $r['weight'] ?? Record::DEFAULT_WEIGHT
 			];
+
+			if (NULL !== ($weight = $r->getMeta('rweight'))) {
+				if (!($id = $this->getRecordId($r))) {
+					//debug("Missed record ID for %s", var_export($r, true));
+					$id = $r->hash();
+				}
+				$args['Weight'] = $weight;
+				$args['SetIdentifier'] = $id;
+			}
 			// AWS has a strict match on TTL with records.
 			// Retrieve what we can from cache if it's missing
 			if ($r['ttl'] === null) {
@@ -453,14 +466,8 @@
 			$args['TTL'] = $r['ttl'];
 			$fqdn = ltrim($r['name'] . '.' . $r['zone'], '.');
 
-			if (!($id = $this->getRecordId($r))) {
-				//debug("Missed record ID for %s", var_export($r, true));
-				$id = $r->hash();
-			}
-
 			return $args + [
 					'Name'            => $fqdn,
-					'SetIdentifier'   => $id,
 					'ResourceRecords' => [['Value' => $r['parameter']]]
 				];
 		}

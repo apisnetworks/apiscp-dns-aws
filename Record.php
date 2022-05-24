@@ -15,10 +15,6 @@
 
 	class Record extends \Opcenter\Dns\Record
 	{
-		/**
-		 * @var int default DNS weight
-		 */
-		const DEFAULT_WEIGHT = 100;
 
 		/**
 		 * @var int $weight record weight
@@ -31,6 +27,9 @@
 				$args['name'] = rtrim((string)substr($args['name'], 0, \strlen($args['name']) - \strlen($zone)), '.');
 			}
 			parent::__construct($zone, $args);
+			if (null === $this->getMeta('id')) {
+				$this->setMeta('id', $this->hash());
+			}
 		}
 
 		protected function formatCaa()
@@ -63,7 +62,7 @@
 				'rr'        => $this->rr,
 				'parameter' => $this->parameter,
 				'ttl'       => $this->ttl,
-				'weight'    => $this->weight,
+				'rweight'   => $this->weight,
 			];
 		}
 
@@ -72,6 +71,5 @@
 			// sha256 gets truncated in API
 			return hash('md5', var_export($this, true));
 		}
-
 
 	}
